@@ -6,11 +6,11 @@ This guide will help you get to know the rules that improves the communication b
 
 We love to receive contributions from the community, like fixing the bugs, adding the documentation, proposing new features, and eventually implementing new features, and so on.
 
-Please, make sure new features and support questions related to the extension are first put in the [Discussions](https://github.com/rozpuszczalny/vscode-redmine/discussions) tab on GitHub, where we can clarify questions and discuss new features before they are made.
+Please, make sure new features and support questions related to the extension are first put in the [Discussions](https://github.com/ntl93/vscode-redmine/discussions) tab on GitHub, where we can clarify questions and discuss new features before they are made.
 
 # Ground Rules
 
-* If you come up with a new feature, discuss it first in the [Discussions](https://github.com/rozpuszczalny/vscode-redmine/discussions) tab on GitHub with the maintainers and community
+* If you come up with a new feature, discuss it first in the [Discussions](https://github.com/ntl93/vscode-redmine/discussions) tab on GitHub with the maintainers and community
 * Ensure your code is formatted with [Prettier](https://prettier.io) and checked with [eslint](https://eslint.org) (you may check both by simply running `npm run lint`)
 * Keep PRs as small possible - do not batch multiple features within a single PR
 * Try to keep PR with a single commit - otherwise maintainers may squash it into single commit
@@ -22,7 +22,7 @@ Please, make sure new features and support questions related to the extension ar
 
 # Your First Contribution
 
-Unsure where to begin contributing to `vscode-redmine`? You can start by looking through issues labelled with 'good first issue' label.
+Unsure where to begin contributing to `vscode-redmine`? You can start by looking through [issues labelled with 'good first issue'](https://github.com/ntl93/vscode-redmine/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22).
 
 > Working on your first Pull Request? You can learn more about how to do it on this site [https://www.firsttimersonly.com/](https://www.firsttimersonly.com/)
 
@@ -38,7 +38,7 @@ Unsure where to begin contributing to `vscode-redmine`? You can start by looking
 
 # How to report a bug
 
-If you find a security vulnerability, do NOT open an issue. Email github@rozpuszczalny.com instead.
+If you find a security vulnerability, do NOT open an issue. Please report it via [GitHub's private vulnerability reporting](https://github.com/ntl93/vscode-redmine/security/advisories/new) instead.
 
 When you want to create a bug report, make sure you fill out the issue template.
 
@@ -48,7 +48,7 @@ When you want to create a bug report, make sure you fill out the issue template.
 
 Before making a suggestion, make sure it was not requested before in the Issues and Discussion tabs on GitHub.
 
-To make a suggestion, propose the feature or enhancement, please create a new discussion in the [Ideas](https://github.com/rozpuszczalny/vscode-redmine/discussions/categories/ideas) in Discussions on GitHub. Describe how a new functionality would help your workflow and provide as much context to it, so we can refine together the best possible solution to your flow.
+To make a suggestion, propose the feature or enhancement, please create a new discussion in the [Ideas](https://github.com/ntl93/vscode-redmine/discussions/categories/ideas) in Discussions on GitHub. Describe how a new functionality would help your workflow and provide as much context to it, so we can refine together the best possible solution to your flow.
 
 Once refined, a discussion will be transformed into issue by the maintainers and the milestone will be set up.
 

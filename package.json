@@ -3,12 +3,12 @@
   "displayName": "Redmine",
   "description": "Integration with VSCode and Redmine",
   "version": "1.1.1",
-  "publisher": "rozpuszczalny",
+  "publisher": "ntl93",
   "license": "MIT",
   "icon": "logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rozpuszczalny/vscode-redmine.git"
+    "url": "https://github.com/ntl93/vscode-redmine.git"
   },
   "engines": {
     "vscode": "^1.31.0"
@@ -179,19 +179,14 @@
     "lint": "eslint ."
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.175",
-    "@types/mocha": "^2.2.42",
-    "@types/node": "^7.0.43",
-    "@types/vscode": "^1.31.0",
-    "@typescript-eslint/eslint-plugin": "^5.0.0",
-    "@typescript-eslint/parser": "^5.0.0",
-    "eslint": "^8.0.0",
-    "eslint-config-prettier": "^8.3.0",
-    "eslint-plugin-prettier": "^4.0.0",
-    "prettier": "^2.0.5",
-    "typescript": "^3.9.7"
-  },
-  "dependencies": {
-    "lodash": "^4.17.21"
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.116.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
   }
 }

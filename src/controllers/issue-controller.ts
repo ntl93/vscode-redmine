@@ -10,7 +10,10 @@ interface TimeEntryActivityItem extends vscode.QuickPickItem {
 }
 
 export class IssueController {
-  constructor(private issue: Issue, private redmine: RedmineServer) {}
+  constructor(
+    private issue: Issue,
+    private redmine: RedmineServer
+  ) {}
 
   chooseTimeEntryType(activities: TimeEntryActivity[]) {
     vscode.window
@@ -130,7 +133,7 @@ export class IssueController {
     let memberships: Membership[];
     try {
       memberships = await this.redmine.getMemberships(this.issue.project.id);
-    } catch (error) {
+    } catch {
       vscode.window.showErrorMessage(
         `Could not get memberships of project ${this.issue.project.name}`
       );
@@ -140,7 +143,7 @@ export class IssueController {
     let possibleStatuses: IssueStatus[];
     try {
       possibleStatuses = await this.redmine.getIssueStatusesTyped();
-    } catch (error) {
+    } catch {
       vscode.window.showErrorMessage("Could not get possible issue statuses");
       return;
     }

@@ -17,7 +17,7 @@ Redmine extension for Visual Studio Code.
   - Open issue in browser
   - Quick update issue
 
-_Missing a feature? Open an issue and let me know!_
+_Missing a feature? Open an [issue](https://github.com/ntl93/vscode-redmine/issues) and let us know!_
 
 ### Sidebar panel
 
@@ -50,11 +50,11 @@ This extension contributes the following settings:
 
 ## Contribution
 
-If you want to contribute to the project, please read [contributing guide](./CONTRIBUTING.md) guide.
+If you want to contribute to the project, please read the [contributing guide](./CONTRIBUTING.md).
 
 ## Known Issues
 
-No known issues yet. If you found one, feel free to open an issue!
+No known issues yet. If you found one, feel free to [open an issue](https://github.com/ntl93/vscode-redmine/issues)!
 
 ## Release Notes
 
@@ -69,4 +69,6 @@ Logo is remixed version of original Redmine Logo.
 Redmine Logo is Copyright (C) 2009 Martin Herr and is licensed under the Creative Commons Attribution-Share Alike 2.5 Generic license.
 See http://creativecommons.org/licenses/by-sa/2.5/ for more details.
 
-Made with ❤️ by [@rozpuszczalny](https://tomaszdomanski.com/?utm_source=github&utm_campaign=vscode-redmine)
+---
+
+> This project is a fork of [rozpuszczalny/vscode-redmine](https://github.com/rozpuszczalny/vscode-redmine). Thanks to the original author and all contributors!

@@ -14,8 +14,6 @@ import { TimeEntry } from "./models/time-entry";
 import { Issue } from "./models/issue";
 import { IssueStatus as RedmineIssueStatus } from "./models/issue-status";
 import { Membership as RedmineMembership } from "./models/membership";
-import isNil from "lodash/isNil";
-import isEqual from "lodash/isEqual";
 
 type HttpMethods = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
@@ -82,7 +80,10 @@ export class RedmineServer {
       ...options,
       url: parse(options.address),
     };
-    if (isNil(this.options.additionalHeaders)) {
+    if (
+      this.options.additionalHeaders === null ||
+      this.options.additionalHeaders === undefined
+    ) {
       this.options.additionalHeaders = {};
     }
   }
@@ -106,8 +107,10 @@ export class RedmineServer {
       method,
     };
     if (data) {
-      options.headers!["Content-Length"] = data.length;
-      options.headers!["Content-Type"] = "application/json";
+      (options.headers as Record<string, string | number>)["Content-Length"] =
+        data.length;
+      (options.headers as Record<string, string | number>)["Content-Type"] =
+        "application/json";
     }
 
     return new Promise((resolve, reject) => {
@@ -149,14 +152,14 @@ export class RedmineServer {
           try {
             const object = JSON.parse(incomingBuffer.toString("utf8"));
             resolve(object);
-          } catch (e) {
+          } catch {
             reject(new Error("Couldn't parse Redmine response as JSON..."));
           }
           return;
         }
 
         // Using `doRequest` on the endpoints that return 204 should type as void/null
-        resolve((null as unknown) as T);
+        resolve(null as unknown as T);
       };
 
       const clientRequest = this.request(options, (incoming) => {
@@ -187,23 +190,21 @@ export class RedmineServer {
         return accumulator;
       }
 
-      const [totalCount, result]: [
-        number,
-        RedmineProject[]
-      ] = await this.doRequest<{
-        projects: Project[];
-        total_count: number;
-      }>(`/projects.json?limit=${limit}&offset=${offset}`, "GET").then(
-        ({ total_count, projects }) => [
-          total_count,
-          projects.map(
-            (proj) =>
-              new RedmineProject(this, {
-                ...proj,
-              })
-          ),
-        ]
-      );
+      const [totalCount, result]: [number, RedmineProject[]] =
+        await this.doRequest<{
+          projects: Project[];
+          total_count: number;
+        }>(`/projects.json?limit=${limit}&offset=${offset}`, "GET").then(
+          ({ total_count, projects }) => [
+            total_count,
+            projects.map(
+              (proj) =>
+                new RedmineProject(this, {
+                  ...proj,
+                })
+            ),
+          ]
+        );
 
       return req(offset + limit, limit, totalCount, accumulator.concat(result));
     };
@@ -284,7 +285,7 @@ export class RedmineServer {
    * Returns promise, that resolves to list of issue statuses in provided redmine server
    */
   getIssueStatuses(): Promise<{ issue_statuses: RedmineIssueStatus[] }> {
-    if (isNil(this.issueStatuses)) {
+    if (this.issueStatuses === null || this.issueStatuses === undefined) {
       return this.doRequest<{ issue_statuses: RedmineIssueStatus[] }>(
         "/issue_statuses.json",
         "GET"
@@ -374,11 +375,27 @@ export class RedmineServer {
   }
 
   compare(other: RedmineServer) {
+    const headersEqual = (
+      a: { [key: string]: string } | undefined,
+      b: { [key: string]: string } | undefined
+    ) => {
+      const aObj = a ?? {};
+      const bObj = b ?? {};
+      const aKeys = Object.keys(aObj).sort();
+      const bKeys = Object.keys(bObj).sort();
+      return (
+        aKeys.length === bKeys.length &&
+        aKeys.every((k, i) => k === bKeys[i] && aObj[k] === bObj[k])
+      );
+    };
     return (
       this.options.address === other.options.address &&
       this.options.key === other.options.key &&
       this.options.rejectUnauthorized === other.options.rejectUnauthorized &&
-      isEqual(this.options.additionalHeaders, other.options.additionalHeaders)
+      headersEqual(
+        this.options.additionalHeaders,
+        other.options.additionalHeaders
+      )
     );
   }
 }

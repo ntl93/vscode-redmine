@@ -1,9 +1,9 @@
 **IMPORTANT**
 
-If you want to create a feature request, do it through [Discussions tab](https://github.com/rozpuszczalny/vscode-redmine/discussions).
+If you want to create a feature request, do it through the [Discussions tab](https://github.com/ntl93/vscode-redmine/discussions).
 Your issue will be converted into the discussion, if it is a feature request.
 
-If the bug is related to the security issue, do NOT create an issue. Email github@rozpuszczalny.com instead.
+If the bug is related to a security issue, do NOT create an issue. Please report it via [GitHub's private vulnerability reporting](https://github.com/ntl93/vscode-redmine/security/advisories/new) instead.
 
 **Describe the bug**
 

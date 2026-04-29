@@ -3,15 +3,15 @@ import { RedmineServer } from "../redmine/redmine-server";
 import { RedmineConfig } from "../definitions/redmine-config";
 import { RedmineProject } from "../redmine/redmine-project";
 import { Issue } from "../redmine/models/issue";
-import isNil from "lodash/isNil";
 
 export enum ProjectsViewStyle {
   LIST = 0,
   TREE = 1,
 }
 
-export class ProjectsTree
-  implements vscode.TreeDataProvider<RedmineProject | Issue> {
+export class ProjectsTree implements vscode.TreeDataProvider<
+  RedmineProject | Issue
+> {
   server: RedmineServer;
   viewStyle: ProjectsViewStyle;
   projects: RedmineProject[] | null = null;
@@ -28,9 +28,11 @@ export class ProjectsTree
     this.viewStyle = ProjectsViewStyle.LIST;
   }
 
-  onDidChangeTreeData$ = new vscode.EventEmitter<RedmineProject | Issue>();
-  onDidChangeTreeData: vscode.Event<RedmineProject | Issue> = this
-    .onDidChangeTreeData$.event;
+  onDidChangeTreeData$ = new vscode.EventEmitter<
+    RedmineProject | Issue | undefined
+  >();
+  onDidChangeTreeData: vscode.Event<RedmineProject | Issue | undefined> =
+    this.onDidChangeTreeData$.event;
   getTreeItem(
     projectOrIssue: RedmineProject | Issue
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
@@ -57,7 +59,11 @@ export class ProjectsTree
   async getChildren(
     projectOrIssue?: RedmineProject | Issue
   ): Promise<(RedmineProject | Issue)[]> {
-    if (!isNil(projectOrIssue) && projectOrIssue instanceof RedmineProject) {
+    if (
+      projectOrIssue !== null &&
+      projectOrIssue !== undefined &&
+      projectOrIssue instanceof RedmineProject
+    ) {
       if (this.viewStyle === ProjectsViewStyle.TREE) {
         const subprojects: (RedmineProject | Issue)[] = this.projects!.filter(
           (project) => project.parent && project.parent.id === projectOrIssue.id
@@ -88,7 +94,7 @@ export class ProjectsTree
 
   setViewStyle(style: ProjectsViewStyle) {
     this.viewStyle = style;
-    this.onDidChangeTreeData$.fire();
+    this.onDidChangeTreeData$.fire(undefined);
   }
 
   setServer(server: RedmineServer) {
