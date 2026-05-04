@@ -9,6 +9,7 @@ import {
   QuickUpdateResult,
 } from "../controllers/domain";
 import { TimeEntryActivity } from "./models/time-entry-activity";
+import { NamedEntity } from "./models/named-entity";
 import { Project } from "./models/project";
 import { TimeEntry } from "./models/time-entry";
 import { Issue } from "./models/issue";
@@ -16,6 +17,29 @@ import { IssueStatus as RedmineIssueStatus } from "./models/issue-status";
 import { Membership as RedmineMembership } from "./models/membership";
 
 type HttpMethods = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+
+export interface TimeEntryRecord {
+  id: number;
+  issue_id?: number;
+  spent_on: string;
+  hours: string;
+  comments?: string;
+  project?: NamedEntity;
+  issue?: {
+    id: number;
+    subject?: string;
+    project?: NamedEntity;
+  };
+  user?: NamedEntity;
+  activity?: NamedEntity;
+}
+
+interface TimeEntryCollectionResponse {
+  time_entries: TimeEntryRecord[];
+  total_count?: number;
+  offset?: number;
+  limit?: number;
+}
 
 const REDMINE_API_KEY_HEADER_NAME = "X-Redmine-API-Key";
 
@@ -306,6 +330,61 @@ export class RedmineServer {
     const statuses = await this.getIssueStatuses();
     return statuses.issue_statuses.map((s) => new IssueStatus(s.id, s.name));
   }
+
+  async getTimeEntries(options: {
+    from: string;
+    to: string;
+    projectId?: number | string;
+    userId?: number | string;
+    limit?: number;
+  }): Promise<TimeEntryRecord[]> {
+    const limit = options.limit ?? 100;
+    const allEntries: TimeEntryRecord[] = [];
+
+    for (let offset = 0; ; offset += limit) {
+      const query = new URLSearchParams({
+        from: options.from,
+        to: options.to,
+        limit: String(limit),
+        offset: String(offset),
+        include: "issue,project,activity,user",
+      });
+
+      if (options.projectId !== undefined && options.projectId !== null) {
+        query.set("project_id", String(options.projectId));
+      }
+
+      if (options.userId !== undefined && options.userId !== null) {
+        query.set("user_id", String(options.userId));
+      }
+
+      const response = await this.doRequest<TimeEntryCollectionResponse>(
+        `/time_entries.json?${query.toString()}`,
+        "GET"
+      );
+
+      const entries = response?.time_entries || [];
+      allEntries.push(...entries);
+
+      if (entries.length === 0) {
+        break;
+      }
+
+      if (
+        response?.total_count !== undefined &&
+        allEntries.length >= response.total_count
+      ) {
+        break;
+      }
+
+      if (entries.length < limit) {
+        break;
+      }
+    }
+
+    return allEntries;
+  }
+
   async getMemberships(projectId: number): Promise<Membership[]> {
     const membershipsResponse = await this.doRequest<{
       memberships: RedmineMembership[];

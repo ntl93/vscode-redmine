@@ -22,6 +22,7 @@
     "onCommand:redmine.newIssue",
     "onCommand:redmine.openActionsForIssueUnderCursor",
     "onCommand:redmine.changeDefaultServer",
+    "onCommand:redmine.openDashboard",
     "onView:redmine-explorer",
     "onView:redmine-explorer-my-issues",
     "onView:redmine-explorer-projects"
@@ -63,6 +64,11 @@
         "command": "redmine.toggleListView",
         "title": "Toggle Project View: List",
         "icon": "$(list-flat)"
+      },
+      {
+        "command": "redmine.openDashboard",
+        "title": "Redmine: Open Dashboard",
+        "icon": "$(organization)"
       }
     ],
     "views": {
