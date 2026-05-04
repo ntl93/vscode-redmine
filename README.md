@@ -52,6 +52,75 @@ This extension contributes the following settings:
 
 If you want to contribute to the project, please read the [contributing guide](./CONTRIBUTING.md).
 
+## Development
+
+### Prerequisites
+
+- Node.js (LTS recommended)
+- VS Code
+
+### Install dependencies
+
+```bash
+npm ci
+```
+
+### Run / debug in VS Code
+
+1. Open this repository in VS Code.
+2. Press `F5` (or use **Run and Debug** → **Run Extension**).
+3. A new **Extension Development Host** window opens with the extension loaded.
+
+The extension can be configured in the Extension Development Host window via workspace settings:
+
+- `redmine.url`
+- `redmine.apiKey`
+
+### Build
+
+```bash
+npm run compile
+```
+
+### Watch mode
+
+```bash
+npm run watch
+```
+
+### Lint
+
+```bash
+npm run lint
+```
+
+## Packaging & publishing
+
+This extension uses VS Code's standard `vsce` tooling.
+
+### Package a `.vsix`
+
+```bash
+npx @vscode/vsce package
+```
+
+This produces a `vscode-redmine-*.vsix` file.
+
+### Install on another machine
+
+- In VS Code: **Extensions** → `...` (More Actions) → **Install from VSIX...**
+- Or from CLI:
+
+```bash
+code --install-extension ./vscode-redmine-*.vsix
+```
+
+### Publish
+
+```bash
+npx @vscode/vsce publish
+```
+
 ## Known Issues
 
 No known issues yet. If you found one, feel free to [open an issue](https://github.com/ntl93/vscode-redmine/issues)!
