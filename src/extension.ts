@@ -162,14 +162,14 @@ export function activate(context: vscode.ExtensionContext): void {
     myIssuesTree.setServer(conf.server);
     projectsTree.setServer(conf.server);
 
-    projectsTree.onDidChangeTreeData$.fire();
-    myIssuesTree.onDidChangeTreeData$.fire();
+    projectsTree.onDidChangeTreeData$.fire(undefined);
+    myIssuesTree.onDidChangeTreeData$.fire(undefined);
   });
   context.subscriptions.push(
     vscode.commands.registerCommand("redmine.refreshIssues", () => {
       projectsTree.clearProjects();
-      projectsTree.onDidChangeTreeData$.fire();
-      myIssuesTree.onDidChangeTreeData$.fire();
+      projectsTree.onDidChangeTreeData$.fire(undefined);
+      myIssuesTree.onDidChangeTreeData$.fire(undefined);
     }),
     vscode.commands.registerCommand("redmine.toggleTreeView", () => {
       vscode.commands.executeCommand(

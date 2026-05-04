@@ -17,7 +17,7 @@ Redmine extension for Visual Studio Code.
   - Open issue in browser
   - Quick update issue
 
-_Missing a feature? Open an issue and let me know!_
+_Missing a feature? Open an [issue](https://github.com/ntl93/vscode-redmine/issues) and let us know!_
 
 ### Sidebar panel
 
@@ -50,11 +50,80 @@ This extension contributes the following settings:
 
 ## Contribution
 
-If you want to contribute to the project, please read [contributing guide](./CONTRIBUTING.md) guide.
+If you want to contribute to the project, please read the [contributing guide](./CONTRIBUTING.md).
+
+## Development
+
+### Prerequisites
+
+- Node.js (LTS recommended)
+- VS Code
+
+### Install dependencies
+
+```bash
+npm ci
+```
+
+### Run / debug in VS Code
+
+1. Open this repository in VS Code.
+2. Press `F5` (or use **Run and Debug** → **Run Extension**).
+3. A new **Extension Development Host** window opens with the extension loaded.
+
+The extension can be configured in the Extension Development Host window via workspace settings:
+
+- `redmine.url`
+- `redmine.apiKey`
+
+### Build
+
+```bash
+npm run compile
+```
+
+### Watch mode
+
+```bash
+npm run watch
+```
+
+### Lint
+
+```bash
+npm run lint
+```
+
+## Packaging & publishing
+
+This extension uses VS Code's standard `vsce` tooling.
+
+### Package a `.vsix`
+
+```bash
+npx @vscode/vsce package
+```
+
+This produces a `vscode-redmine-*.vsix` file.
+
+### Install on another machine
+
+- In VS Code: **Extensions** → `...` (More Actions) → **Install from VSIX...**
+- Or from CLI:
+
+```bash
+code --install-extension ./vscode-redmine-*.vsix
+```
+
+### Publish
+
+```bash
+npx @vscode/vsce publish
+```
 
 ## Known Issues
 
-No known issues yet. If you found one, feel free to open an issue!
+No known issues yet. If you found one, feel free to [open an issue](https://github.com/ntl93/vscode-redmine/issues)!
 
 ## Release Notes
 
@@ -69,4 +138,6 @@ Logo is remixed version of original Redmine Logo.
 Redmine Logo is Copyright (C) 2009 Martin Herr and is licensed under the Creative Commons Attribution-Share Alike 2.5 Generic license.
 See http://creativecommons.org/licenses/by-sa/2.5/ for more details.
 
-Made with ❤️ by [@rozpuszczalny](https://tomaszdomanski.com/?utm_source=github&utm_campaign=vscode-redmine)
+---
+
+> This project is a fork of [rozpuszczalny/vscode-redmine](https://github.com/rozpuszczalny/vscode-redmine). Thanks to the original author and all contributors!

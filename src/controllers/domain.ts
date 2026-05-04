@@ -7,7 +7,10 @@ export class Membership {
 }
 
 export class IssueStatus {
-  constructor(public readonly statusId: number, public readonly name: string) {}
+  constructor(
+    public readonly statusId: number,
+    public readonly name: string
+  ) {}
 }
 
 export class QuickUpdate {
