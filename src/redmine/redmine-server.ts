@@ -42,6 +42,7 @@ interface TimeEntryCollectionResponse {
 }
 
 const REDMINE_API_KEY_HEADER_NAME = "X-Redmine-API-Key";
+const ISSUE_BATCH_SIZE = 100;
 
 export interface RedmineServerConnectionOptions {
   /**
@@ -287,7 +288,7 @@ export class RedmineServer {
 
   /**
    * Returns promise that resolves to a list of issues matching the given IDs.
-   * Requests are batched to avoid overly long URLs.
+   * Requests are batched and processed concurrently to avoid overly long URLs.
    * @param issueIds Array of issue IDs to fetch
    */
   async getIssuesByIds(issueIds: number[]): Promise<Issue[]> {
@@ -295,25 +296,26 @@ export class RedmineServer {
       return [];
     }
 
-    const BATCH_SIZE = 100;
-    const allIssues: Issue[] = [];
-
-    for (let i = 0; i < issueIds.length; i += BATCH_SIZE) {
-      const batch = issueIds.slice(i, i + BATCH_SIZE);
-      const query = new URLSearchParams({
-        issue_id: batch.join(","),
-        limit: String(BATCH_SIZE),
-      });
-      const response = await this.doRequest<{ issues: Issue[] }>(
-        `/issues.json?${query.toString()}`,
-        "GET"
-      );
-      if (response?.issues) {
-        allIssues.push(...response.issues);
-      }
+    const batches: number[][] = [];
+    for (let i = 0; i < issueIds.length; i += ISSUE_BATCH_SIZE) {
+      batches.push(issueIds.slice(i, i + ISSUE_BATCH_SIZE));
     }
 
-    return allIssues;
+    const batchResults = await Promise.all(
+      batches.map(async (batch) => {
+        const query = new URLSearchParams({
+          issue_id: batch.join(","),
+          limit: String(ISSUE_BATCH_SIZE),
+        });
+        const response = await this.doRequest<{ issues: Issue[] }>(
+          `/issues.json?${query.toString()}`,
+          "GET"
+        );
+        return response?.issues ?? [];
+      })
+    );
+
+    return batchResults.flat();
   }
 
   /**
