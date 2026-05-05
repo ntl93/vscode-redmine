@@ -9,6 +9,7 @@ import { RedmineConfig } from "./definitions/redmine-config";
 import { ActionProperties } from "./commands/action-properties";
 import { MyIssuesTree } from "./trees/my-issues-tree";
 import { ProjectsTree, ProjectsViewStyle } from "./trees/projects-tree";
+import { RedmineDashboardProvider } from "./webview/redmine-dashboard-provider";
 
 export function activate(context: vscode.ExtensionContext): void {
   const bucket = {
@@ -18,6 +19,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const myIssuesTree = new MyIssuesTree();
   const projectsTree = new ProjectsTree();
+  const dashboardProvider = new RedmineDashboardProvider(context.extensionUri);
 
   vscode.window.createTreeView("redmine-explorer-my-issues", {
     treeDataProvider: myIssuesTree,
@@ -158,9 +160,20 @@ export function activate(context: vscode.ExtensionContext): void {
     openActionsForIssueUnderCursor
   );
   registerCommand("newIssue", newIssue);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("redmine.openDashboard", async () => {
+      const { props } = await parseConfiguration(true);
+
+      if (props) {
+        await dashboardProvider.open(props.server);
+      }
+    })
+  );
   registerCommand("changeDefaultServer", (conf) => {
     myIssuesTree.setServer(conf.server);
     projectsTree.setServer(conf.server);
+    void dashboardProvider.updateServer(conf.server);
 
     projectsTree.onDidChangeTreeData$.fire(undefined);
     myIssuesTree.onDidChangeTreeData$.fire(undefined);
@@ -192,4 +205,4 @@ export function activate(context: vscode.ExtensionContext): void {
 
 // this method is called when your extension is deactivated
 // eslint-disable-next-line @typescript-eslint/no-empty-function
-export function deactivate(): void {}
+export function deactivate(): void { }
