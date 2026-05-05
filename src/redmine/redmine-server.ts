@@ -303,12 +303,8 @@ export class RedmineServer {
 
     const batchResults = await Promise.all(
       batches.map(async (batch) => {
-        const query = new URLSearchParams({
-          issue_id: batch.join(","),
-          limit: String(ISSUE_BATCH_SIZE),
-        });
         const response = await this.doRequest<{ issues: Issue[] }>(
-          `/issues.json?${query.toString()}`,
+          `/issues.json?issue_id=${batch.join(",")}&limit=${ISSUE_BATCH_SIZE}`,
           "GET"
         );
         return response?.issues ?? [];
