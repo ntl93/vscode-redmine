@@ -1188,7 +1188,10 @@ export class RedmineDashboardProvider {
         ? `if (openServerLink) {
               openServerLink.addEventListener('click', (e) => {
                 e.preventDefault();
-                window.open(${JSON.stringify(serverUrl)}, "_blank");
+                vscodeApi.postMessage({
+                  type: 'openExternal',
+                  url: ${JSON.stringify(serverUrl)},
+                });
               });
             }`
         : ""
