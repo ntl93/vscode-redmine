@@ -31,6 +31,7 @@ interface WorktimeReportRow {
   dayHours: number[];
   isSummary: boolean;
   clickable: boolean;
+  isClosed: boolean;
 }
 
 interface WorktimeReportGroup {
@@ -338,6 +339,7 @@ export class RedmineDashboardProvider {
             dayHours: period.days.map(() => 0),
             isSummary: true,
             clickable: false,
+            isClosed: false,
           },
           rows: new Map(),
         };
@@ -357,6 +359,7 @@ export class RedmineDashboardProvider {
           dayHours: period.days.map(() => 0),
           isSummary: false,
           clickable: issueId !== null,
+          isClosed: !!issueDetails && issueDetails.status.name === "Closed",
         };
         group.rows.set(rowKey, row);
       }
@@ -657,7 +660,9 @@ export class RedmineDashboardProvider {
                 : "worktime-row worktime-entry-row";
             const labelContent = row.isSummary
               ? `<span class="worktime-summary-label">${escapeHtml(row.label)}</span>`
-              : escapeHtml(row.label);
+              : row.isClosed
+                ? `<span class="worktime-closed-label"><s>${escapeHtml(row.label)}</s></span>`
+                : escapeHtml(row.label);
             const rowAttributes = row.clickable && row.issueId
               ? ` data-issue-id="${row.issueId}"`
               : "";
@@ -1098,6 +1103,14 @@ export class RedmineDashboardProvider {
           font-weight: 700;
         }
 
+        .worktime-closed-label {
+          color: #6a737d;
+        }
+
+        .worktime-closed-label s {
+          color: #999;
+        }
+
         .worktime-entry-row-clickable {
           cursor: pointer;
         }
@@ -1132,17 +1145,6 @@ export class RedmineDashboardProvider {
         ? `<div class="server-info">Connected to: <a href="#" id="openServerLink">${serverUrl}</a></div>`
         : ""
       }
-
-      <div class="stats">
-        <div class="stat-card">
-          <div class="stat-value">${issuesCount}</div>
-          <div class="stat-label">Open Issues</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${projectsCount}</div>
-          <div class="stat-label">Projects</div>
-        </div>
-      </div>
 
       ${errorHtml}
 
