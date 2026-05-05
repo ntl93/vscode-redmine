@@ -163,20 +163,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("redmine.openDashboard", async () => {
-      const pickedFolder = await vscode.window.showWorkspaceFolderPick();
-      const config = vscode.workspace.getConfiguration(
-        "redmine",
-        pickedFolder?.uri
-      ) as RedmineConfig;
+      const { props } = await parseConfiguration(true);
 
-      const redmineServer = new RedmineServer({
-        address: config.url,
-        key: config.apiKey,
-        additionalHeaders: config.additionalHeaders,
-        rejectUnauthorized: config.rejectUnauthorized,
-      });
-
-      await dashboardProvider.open(redmineServer);
+      if (props) {
+        await dashboardProvider.open(props.server);
+      }
     })
   );
   registerCommand("changeDefaultServer", (conf) => {
