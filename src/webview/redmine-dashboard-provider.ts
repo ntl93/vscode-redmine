@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { RedmineConfig } from "../definitions/redmine-config";
 import { Issue } from "../redmine/models/issue";
+import { IssueStatus as RedmineIssueStatus } from "../redmine/models/issue-status";
 import { RedmineProject } from "../redmine/redmine-project";
 import {
   RedmineServer,
@@ -16,6 +17,35 @@ interface DashboardData {
   worktimeReportError: string | null;
   error: string | null;
 }
+
+interface LogTimeModalData {
+  issue: Issue;
+  spentOn: string | null;
+  statuses: RedmineIssueStatus[];
+  timeEntries: TimeEntryRecord[];
+  currentUserId: number | null;
+  defaultActivityId: number | null;
+}
+
+const ALLOWED_MODAL_STATUS_NAMES = new Set([
+  "new",
+  "in progress",
+  "feedback",
+  "closed",
+]);
+
+const sortAndFilterModalStatuses = (
+  statuses: RedmineIssueStatus[]
+): RedmineIssueStatus[] => {
+  const order = ["new", "in progress", "feedback", "closed"];
+  return statuses
+    .filter((status) => ALLOWED_MODAL_STATUS_NAMES.has(status.name.trim().toLowerCase()))
+    .sort((left, right) => {
+      const leftIndex = order.indexOf(left.name.trim().toLowerCase());
+      const rightIndex = order.indexOf(right.name.trim().toLowerCase());
+      return leftIndex - rightIndex;
+    });
+};
 
 interface WorktimeReportDay {
   date: string;
@@ -69,8 +99,8 @@ const createInitialReportState = (): WorktimeReportState => {
 
 const pad = (value: number): string => String(value).padStart(2, "0");
 
-const escapeHtml = (value: string): string =>
-  value
+const escapeHtml = (value: unknown): string =>
+  String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -99,8 +129,10 @@ export class RedmineDashboardProvider {
   private panel?: vscode.WebviewPanel;
   private _currentServer?: RedmineServer;
   private _reportState: WorktimeReportState = createInitialReportState();
+  private _lastDashboardData: DashboardData | null = null;
+  private _currentModalData: LogTimeModalData | null = null;
 
-  constructor(private readonly _extensionUri: vscode.Uri) { }
+  constructor(private readonly _extensionUri: vscode.Uri) {}
 
   async open(server: RedmineServer): Promise<void> {
     this._currentServer = server;
@@ -145,6 +177,25 @@ export class RedmineDashboardProvider {
               String(message.issueId)
             );
           }
+          break;
+        case "openIssueForLogTime":
+          await this._openLogTimeModal(message.issueId, message.spentOn ?? null);
+          break;
+        case "closeLogTimeModal":
+          this._currentModalData = null;
+          await this._refreshDashboard();
+          break;
+        case "logTime":
+          await this._logTime(message);
+          break;
+        case "updateTimeEntry":
+          await this._updateTimeEntry(message);
+          break;
+        case "deleteTimeEntry":
+          await this._deleteTimeEntry(message);
+          break;
+        case "changeStatus":
+          await this._changeStatus(message);
           break;
         case "worktimePrevMonth":
           this._shiftReportMonth(-1);
@@ -460,6 +511,124 @@ export class RedmineDashboardProvider {
     }
   }
 
+  private async _openLogTimeModal(issueId: number, spentOn: string | null): Promise<void> {
+    if (!this._currentServer || !issueId) return;
+
+    try {
+      const [issueResponse, userResponse, activitiesResponse, statusesResponse, timeEntries] =
+        await Promise.all([
+          this._currentServer.getIssueById(issueId),
+          this._currentServer.getCurrentUser(),
+          this._currentServer.getTimeEntryActivities(),
+          this._currentServer.getIssueStatuses(),
+          this._currentServer.getTimeEntriesByIssue(issueId),
+        ]);
+
+      this._currentModalData = {
+        issue: issueResponse.issue,
+        spentOn,
+        statuses: sortAndFilterModalStatuses(statusesResponse.issue_statuses || []),
+        timeEntries,
+        currentUserId: userResponse.id,
+        defaultActivityId: activitiesResponse.time_entry_activities?.[0]?.id ?? null,
+      };
+      this._rerenderDashboard();
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to open time log modal: ${errorToString(error)}`);
+    }
+  }
+
+  private async _logTime(message: {
+    issueId: number;
+    activityId?: number;
+    hours: string;
+    comments?: string;
+    spentOn?: string;
+  }): Promise<void> {
+    if (!this._currentServer) return;
+    try {
+      const activityId =
+        message.activityId || this._currentModalData?.defaultActivityId || 0;
+      if (!activityId) {
+        throw new Error("No time entry activity available");
+      }
+      await this._currentServer.addTimeEntry(
+        message.issueId,
+        activityId,
+        message.hours,
+        message.comments || "",
+        message.spentOn
+      );
+      vscode.window.showInformationMessage(`Time entry logged for issue #${message.issueId}`);
+      await this._refreshDashboard();
+      if (this._currentModalData?.issue.id === message.issueId) {
+        await this._openLogTimeModal(message.issueId, message.spentOn ?? null);
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to log time: ${errorToString(error)}`);
+    }
+  }
+
+  private async _updateTimeEntry(message: {
+    timeEntryId: number;
+    activityId?: number;
+    hours?: string;
+    comments?: string;
+    spentOn?: string;
+  }): Promise<void> {
+    if (!this._currentServer) return;
+    try {
+      await this._currentServer.updateTimeEntry(
+        message.timeEntryId,
+        message.activityId,
+        message.hours,
+        message.comments || "",
+        message.spentOn
+      );
+      vscode.window.showInformationMessage(`Time entry #${message.timeEntryId} updated`);
+      await this._refreshDashboard();
+      if (this._currentModalData) {
+        await this._openLogTimeModal(this._currentModalData.issue.id, this._currentModalData.spentOn);
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to update time entry: ${errorToString(error)}`);
+    }
+  }
+
+  private async _deleteTimeEntry(message: { timeEntryId: number }): Promise<void> {
+    if (!this._currentServer) return;
+    try {
+      await this._currentServer.deleteTimeEntry(message.timeEntryId);
+      vscode.window.showInformationMessage(`Time entry #${message.timeEntryId} deleted`);
+      await this._refreshDashboard();
+      if (this._currentModalData) {
+        await this._openLogTimeModal(this._currentModalData.issue.id, this._currentModalData.spentOn);
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to delete time entry: ${errorToString(error)}`);
+    }
+  }
+
+  private async _changeStatus(message: { issueId: number; statusId: number }): Promise<void> {
+    if (!this._currentServer || !message.issueId) return;
+    try {
+      const response = await this._currentServer.getIssueById(message.issueId);
+      await this._currentServer.setIssueStatus(response.issue, message.statusId);
+      vscode.window.showInformationMessage(`Issue #${message.issueId} status changed`);
+      await this._refreshDashboard();
+      if (this._currentModalData?.issue.id === message.issueId) {
+        await this._openLogTimeModal(message.issueId, this._currentModalData.spentOn);
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to change status: ${errorToString(error)}`);
+    }
+  }
+
+  private _rerenderDashboard(): void {
+    if (!this.panel || !this._lastDashboardData) return;
+    this._updateWebview(this._lastDashboardData);
+  }
+
   private async _refreshFromCurrentConfiguration(): Promise<void> {
     if (!this.panel) return;
 
@@ -496,6 +665,8 @@ export class RedmineDashboardProvider {
   ): void {
     if (!this.panel) return;
 
+    this._lastDashboardData = data;
+
     const overallError = error ?? data?.error ?? null;
 
     const issuesHtml = data
@@ -531,6 +702,9 @@ export class RedmineDashboardProvider {
               <span>Assigned to: ${assigneeName}</span>
               ${createdOn ? `<span>Created: ${createdOn}</span>` : ""}
               ${dueDate ? `<span>Due: ${dueDate}</span>` : ""}
+            </div>
+            <div class="issue-actions">
+              <button class="log-time-btn" data-issue-id="${issue.id}">Log Time</button>
             </div>
           </div>`;
         })
@@ -646,13 +820,13 @@ export class RedmineDashboardProvider {
         const rows = group.rows
           .map((row) => {
             const rowCells = row.dayHours
-              .map(
-                (hours, index) => `
-                  <td class="worktime-day-cell ${report.days[index].weekendClass}">
-                    ${hours > 0 ? formatHours(hours) : ""}
-                  </td>`
-              )
-              .join("");
+               .map(
+                 (hours, index) => `
+                   <td class="worktime-day-cell ${report.days[index].weekendClass}" data-date="${report.days[index].date}"${hours > 0 ? ' data-has-entry="true"' : ''}>
+                     ${hours > 0 ? formatHours(hours) : ""}
+                   </td>`
+               )
+               .join("");
             const rowClass = row.isSummary
               ? "worktime-row worktime-summary-row"
               : row.clickable
@@ -714,6 +888,88 @@ export class RedmineDashboardProvider {
       </div>`;
   }
 
+  private _buildLogTimeModalHtml(modal: LogTimeModalData): string {
+    const defaultDate = modal.spentOn ?? new Date().toISOString().slice(0, 10);
+    const statusOptions = modal.statuses
+      .map(
+        (status) =>
+          `<option value="${status.id}"${status.id === modal.issue.status.id ? " selected" : ""}>${escapeHtml(status.name)}</option>`
+      )
+      .join("");
+    const entryCards = modal.timeEntries.length
+      ? modal.timeEntries
+          .map(
+            (entry) => `
+              <div class="modal-entry" data-entry-id="${entry.id}" data-editable="${entry.user?.id === modal.currentUserId}">
+                <div class="modal-entry-head">
+                  <div>
+                    <div class="modal-entry-title">#${entry.id}</div>
+                    <div class="modal-entry-meta">${escapeHtml(entry.user?.name ?? "Unknown")}</div>
+                  </div>
+                  <button class="modal-button danger" data-delete-entry="${entry.id}" ${entry.user?.id === modal.currentUserId ? "" : "disabled"}>Delete</button>
+                </div>
+                <div class="modal-entry-meta">${escapeHtml(entry.spent_on)} · ${escapeHtml(entry.hours)} h</div>
+                <div style="margin-top:10px;">
+                  <textarea class="modal-textarea" data-entry-comments="${entry.id}" ${entry.user?.id === modal.currentUserId ? "" : "readonly"}>${escapeHtml(entry.comments || "")}</textarea>
+                </div>
+                ${entry.user?.id === modal.currentUserId ? `
+                  <div class="modal-form-row compact" style="margin-top:10px;">
+                    <input class="modal-input" type="number" min="0" step="0.1" data-entry-hours="${entry.id}" value="${escapeHtml(entry.hours)}" />
+                    <input class="modal-input" type="date" data-entry-date="${entry.id}" value="${escapeHtml(entry.spent_on)}" />
+                  </div>
+                  <div class="modal-actions">
+                    <button class="modal-button primary" data-update-entry="${entry.id}">Update</button>
+                  </div>` : ""}
+              </div>`
+          )
+          .join("")
+      : `<div class="modal-empty">No time entries for this issue.</div>`;
+
+    return `
+      <div id="logTimeModal" class="modal-backdrop" data-issue-id="${modal.issue.id}">
+        <div class="modal-card" role="dialog" aria-modal="true">
+          <div class="modal-card-header">
+            <div>
+              <div class="modal-title">#${modal.issue.id} ${escapeHtml(modal.issue.subject)}</div>
+              <div class="modal-subtitle">${escapeHtml(modal.issue.project?.name ?? "")}</div>
+            </div>
+            <button class="modal-close-btn" id="modalCloseBtn">Close</button>
+          </div>
+
+          <div class="modal-grid">
+            <div class="modal-section">
+              <div class="modal-section-title">Log Time</div>
+              <div class="modal-form-row compact">
+                <input id="modalHours" class="modal-input" type="number" min="0" step="0.1" placeholder="Hours" />
+                <input id="modalSpentOn" class="modal-input" type="date" value="${defaultDate}" />
+              </div>
+              <div style="margin-top:10px;">
+                <textarea id="modalComments" class="modal-textarea" placeholder="Comments"></textarea>
+              </div>
+              <div class="modal-actions">
+                <button id="modalLogTimeBtn" class="modal-button primary">Log time</button>
+              </div>
+            </div>
+
+            <div class="modal-section">
+              <div class="modal-section-title">Change Status</div>
+              <div class="modal-form-row compact">
+                <select id="modalStatus" class="modal-select">
+                  ${statusOptions}
+                </select>
+                <button id="modalStatusBtn" class="modal-button">Apply</button>
+              </div>
+            </div>
+
+            <div class="modal-section">
+              <div class="modal-section-title">Existing Time Entries</div>
+              ${entryCards}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
   private _getHtmlForWebview(
     webview: vscode.Webview,
     serverUrl: string = "",
@@ -723,6 +979,8 @@ export class RedmineDashboardProvider {
     projectsCount: number = 0,
     worktimeReportHtml: string = ""
   ): string {
+    const modalHtml = this._currentModalData ? this._buildLogTimeModalHtml(this._currentModalData) : "";
+
     return `<!DOCTYPE html>
     <html lang="en">
     <head>
@@ -738,401 +996,86 @@ export class RedmineDashboardProvider {
           background: #ffffff;
           padding: 16px;
         }
-
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 16px;
-          padding-bottom: 12px;
-          border-bottom: 1px solid #e1e4e8;
-        }
-
-        .header h2 {
-          font-size: 16px;
-          font-weight: 600;
-          color: #24292e;
-        }
-
-        .stats {
-          display: flex;
-          gap: 16px;
-          margin-bottom: 16px;
-        }
-
-        .stat-card {
-          flex: 1;
-          background: #f6f8fa;
-          border: 1px solid #e1e4e8;
-          border-radius: 6px;
-          padding: 12px;
-          text-align: center;
-        }
-
-        .stat-card .stat-value {
-          font-size: 24px;
-          font-weight: 600;
-          color: #0366d6;
-        }
-
-        .stat-card .stat-label {
-          font-size: 11px;
-          color: #586069;
-          margin-top: 4px;
-        }
-
-        .server-info {
-          background: #f6f8fa;
-          border: 1px solid #e1e4e8;
-          border-radius: 6px;
-          padding: 8px 12px;
-          margin-bottom: 16px;
-          font-size: 12px;
-        }
-
-        .server-info a {
-          color: #0366d6;
-          text-decoration: none;
-        }
-
-        .server-info a:hover {
-          text-decoration: underline;
-        }
-
-        .error-banner {
-          background: #ffeef0;
-          border: 1px solid #d73a49;
-          border-radius: 6px;
-          padding: 12px;
-          margin-bottom: 16px;
-          color: #cb2431;
-          font-size: 13px;
-        }
-
-        .section-title {
-          font-size: 14px;
-          font-weight: 600;
-          margin-bottom: 8px;
-          color: #24292e;
-        }
-
-        .issue-card {
-          border: 1px solid #e1e4e8;
-          border-radius: 6px;
-          padding: 12px;
-          margin-bottom: 8px;
-          cursor: pointer;
-          transition: background-color 0.15s ease, border-color 0.15s ease;
-        }
-
-        .issue-card:hover {
-          background-color: #f6f8fa;
-          border-color: #0366d6;
-        }
-
-        .issue-header {
-          display: flex;
-          align-items: baseline;
-          gap: 8px;
-          margin-bottom: 6px;
-        }
-
-        .issue-id {
-          font-weight: 600;
-          color: #586069;
-          font-size: 12px;
-        }
-
-        .issue-subject {
-          font-weight: 600;
-          color: #24292e;
-          flex: 1;
-        }
-
-        .issue-meta {
-          display: flex;
-          gap: 4px;
-          margin-bottom: 6px;
-          flex-wrap: wrap;
-        }
-
-        .badge {
-          display: inline-block;
-          padding: 1px 8px;
-          border-radius: 12px;
-          font-size: 11px;
-          font-weight: 500;
-        }
-
-        .badge.tracker {
-          background: #e6f3ff;
-          color: #0366d6;
-        }
-
-        .badge.status {
-          background: #e6f3ff;
-          color: #0366d6;
-        }
-
-        .badge.priority {
-          background: #fff8c5;
-          color: #735c0f;
-        }
-
-        .issue-description {
-          color: #586069;
-          font-size: 12px;
-          margin-bottom: 6px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          line-height: 1.4;
-        }
-
-        .issue-details {
-          display: flex;
-          gap: 12px;
-          font-size: 11px;
-          color: #6a737d;
-          flex-wrap: wrap;
-        }
-
-        .refresh-btn {
-          background: none;
-          border: 1px solid #e1e4e8;
-          border-radius: 6px;
-          padding: 4px 10px;
-          cursor: pointer;
-          font-size: 12px;
-          color: #586069;
-          transition: background-color 0.15s ease;
-        }
-
-        .refresh-btn:hover {
-          background-color: #f3f4f6;
-          color: #0366d6;
-        }
-
-        .no-issues {
-          text-align: center;
-          padding: 24px;
-          color: #6a737d;
-          font-size: 13px;
-        }
-
-        .worktime-report {
-          margin-bottom: 20px;
-          padding: 12px;
-          border: 1px solid #e1e4e8;
-          border-radius: 8px;
-          background: #fafbfc;
-        }
-
-        .worktime-report-header {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-          margin-bottom: 12px;
-          flex-wrap: wrap;
-        }
-
-        .worktime-report-period {
-          font-size: 12px;
-          color: #586069;
-          margin-top: 2px;
-        }
-
-        .worktime-report-controls {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          align-items: flex-end;
-        }
-
-        .worktime-month-nav {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .report-nav-btn {
-          background: #fff;
-          border: 1px solid #d0d7de;
-          border-radius: 6px;
-          padding: 4px 8px;
-          cursor: pointer;
-          font-size: 12px;
-          color: #24292e;
-        }
-
-        .report-nav-btn:hover {
-          background: #f3f4f6;
-        }
-
-        .worktime-month-label {
-          min-width: 180px;
-          text-align: center;
-          font-size: 12px;
-          color: #24292e;
-        }
-
-        .worktime-project-select {
-          min-width: 220px;
-          border: 1px solid #d0d7de;
-          border-radius: 6px;
-          padding: 5px 8px;
-          font-size: 12px;
-          color: #24292e;
-          background: #fff;
-        }
-
-        .worktime-summary-chips {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          margin-bottom: 12px;
-        }
-
-        .worktime-summary-chip {
-          display: inline-flex;
-          align-items: center;
-          border: 1px solid #e1e4e8;
-          border-radius: 999px;
-          background: #fff;
-          padding: 3px 10px;
-          font-size: 11px;
-          color: #586069;
-        }
-
-        .worktime-table-wrap {
-          overflow-x: auto;
-          border: 1px solid #e1e4e8;
-          border-radius: 8px;
-          background: #fff;
-        }
-
-        .worktime-table {
-          width: 100%;
-          min-width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
-        }
-
+        .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #e1e4e8; }
+        .header h2 { font-size:16px; font-weight:600; }
+        .server-info { background:#f6f8fa; border:1px solid #e1e4e8; border-radius:6px; padding:8px 12px; margin-bottom:16px; font-size:12px; }
+        .server-info a { color:#0366d6; text-decoration:none; }
+        .error-banner { background:#ffeef0; border:1px solid #d73a49; border-radius:6px; padding:12px; margin-bottom:16px; color:#cb2431; }
+        .section-title { font-size:14px; font-weight:600; margin-bottom:8px; }
+        .issue-card { border:1px solid #e1e4e8; border-radius:6px; padding:12px; margin-bottom:8px; cursor:pointer; }
+        .issue-card:hover { background:#f6f8fa; border-color:#0366d6; }
+        .issue-header { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+        .issue-id { font-weight:600; color:#586069; font-size:12px; }
+        .issue-subject { font-weight:600; flex:1; }
+        .issue-meta, .issue-details { display:flex; gap:4px; flex-wrap:wrap; font-size:11px; color:#6a737d; }
+        .badge { display:inline-block; padding:1px 8px; border-radius:12px; font-size:11px; font-weight:500; }
+        .badge.tracker, .badge.status { background:#e6f3ff; color:#0366d6; }
+        .badge.priority { background:#fff8c5; color:#735c0f; }
+        .refresh-btn, .log-time-btn, .open-browser-btn, .modal-close-btn, .modal-button { cursor:pointer; }
+        .refresh-btn { background:none; border:1px solid #e1e4e8; border-radius:6px; padding:4px 10px; font-size:12px; color:#586069; }
+        .no-issues { text-align:center; padding:24px; color:#6a737d; }
+        .worktime-report { margin-bottom:20px; padding:12px; border:1px solid #e1e4e8; border-radius:8px; background:#fafbfc; }
+        .worktime-report-header { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:12px; flex-wrap:wrap; }
+        .worktime-report-period { font-size:12px; color:#586069; margin-top:2px; }
+        .worktime-report-controls { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+        .worktime-month-nav { display:flex; align-items:center; gap:8px; }
+        .report-nav-btn { background:#fff; border:1px solid #d0d7de; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:12px; color:#24292e; }
+        .report-nav-btn:hover { background:#f3f4f6; }
+        .worktime-month-label { min-width:180px; text-align:center; font-size:12px; color:#24292e; }
+        .worktime-project-select { min-width:220px; border:1px solid #d0d7de; border-radius:6px; padding:5px 8px; font-size:12px; color:#24292e; background:#fff; }
+        .worktime-summary-chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+        .worktime-summary-chip { display:inline-flex; align-items:center; border:1px solid #e1e4e8; border-radius:999px; background:#fff; padding:3px 10px; font-size:11px; color:#586069; }
+        .worktime-table-wrap { overflow-x:auto; border:1px solid #e1e4e8; border-radius:8px; background:#fff; }
+        .worktime-table { width:100%; min-width:100%; border-collapse:collapse; table-layout:fixed; }
         .worktime-table th,
-        .worktime-table td {
-          border-right: 1px solid #e1e4e8;
-          border-bottom: 1px solid #e1e4e8;
-          padding: 4px 6px;
-          text-align: center;
-          white-space: nowrap;
-        }
-
-        .worktime-table th.worktime-label-col {
-          position: sticky;
-          left: 0;
-          z-index: 2;
-          text-align: left;
-          width: 420px;
-          min-width: 420px;
-          max-width: 420px;
-          background: #fff;
-          white-space: normal;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          vertical-align: top;
-          line-height: 1.3;
-        }
-
-        .worktime-table .worktime-total-col {
-          position: sticky;
-          left: 420px;
-          z-index: 1;
-          width: 96px;
-          min-width: 96px;
-          max-width: 96px;
-          background: #fff;
-        }
-
-        .worktime-day-header {
-          min-width: 44px;
-          font-size: 11px;
-          line-height: 1.1;
-          background: #f8f9fa;
-        }
-
-        .worktime-day-number {
-          display: block;
-          font-weight: 600;
-        }
-
-        .worktime-day-weekday {
-          display: block;
-          color: #6a737d;
-          margin-top: 2px;
-        }
-
+        .worktime-table td { border-right:1px solid #e1e4e8; border-bottom:1px solid #e1e4e8; padding:4px 6px; text-align:center; white-space:nowrap; }
+        .worktime-table th.worktime-label-col { position:sticky; left:0; z-index:2; text-align:left; width:420px; min-width:420px; max-width:420px; background:#fff; white-space:normal; overflow-wrap:anywhere; word-break:break-word; vertical-align:top; line-height:1.3; }
+        .worktime-table .worktime-total-col { position:sticky; left:420px; z-index:1; width:96px; min-width:96px; max-width:96px; background:#fff; }
+        .worktime-day-header { min-width:44px; font-size:11px; line-height:1.1; background:#f8f9fa; }
+        .worktime-day-number { display:block; font-weight:600; }
+        .worktime-day-weekday { display:block; color:#6a737d; margin-top:2px; }
         .worktime-day-cell,
-        .worktime-day-total {
-          min-width: 44px;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .weekend-saturday {
-          background: #eef2ff;
-        }
-
-        .weekend-sunday {
-          background: #fff1f2;
-        }
-
-        .worktime-summary-row {
-          background: #111827;
-          color: #fff;
-        }
-
+        .worktime-day-total { min-width:44px; font-variant-numeric:tabular-nums; }
+        .weekend-saturday { background:#eef2ff; }
+        .weekend-sunday { background:#fff1f2; }
+        .worktime-summary-row { background:#111827; color:#fff; }
         .worktime-summary-row th.worktime-label-col,
         .worktime-summary-row .worktime-total-col,
-        .worktime-summary-row td {
-          background: #111827;
-          color: #fff;
-          border-color: #2d3748;
-        }
-
-        .worktime-summary-label {
-          font-weight: 700;
-        }
-
-        .worktime-closed-label {
-          color: #6a737d;
-        }
-
-        .worktime-closed-label s {
-          color: #999;
-        }
-
-        .worktime-entry-row-clickable {
-          cursor: pointer;
-        }
-
-        .worktime-entry-row:hover {
-          background: #f6f8fa;
-        }
-
+        .worktime-summary-row td { background:#111827; color:#fff; border-color:#2d3748; }
+        .worktime-summary-label { font-weight:700; }
+        .worktime-closed-label { color:#6a737d; }
+        .worktime-closed-label s { color:#999; }
+        .worktime-entry-row-clickable { cursor:pointer; }
+        .worktime-entry-row:hover { background:#f6f8fa; }
         .worktime-entry-row:hover .worktime-label-col,
-        .worktime-entry-row:hover .worktime-total-col {
-          background: #f6f8fa;
-        }
-
-        .worktime-grand-total-row {
-          background: #f6f8fa;
-          font-weight: 600;
-        }
-
+        .worktime-entry-row:hover .worktime-total-col { background:#f6f8fa; }
+        .worktime-grand-total-row { background:#f6f8fa; font-weight:600; }
         .worktime-grand-total-row .worktime-label-col,
-        .worktime-grand-total-row .worktime-total-col {
-          background: #f6f8fa;
-        }
+        .worktime-grand-total-row .worktime-total-col { background:#f6f8fa; }
+        .issue-actions { display:flex; gap:8px; margin-top:8px; }
+        .log-time-btn, .open-browser-btn, .modal-close-btn, .modal-button { border:1px solid #d0d7de; border-radius:6px; background:#fff; font-size:12px; color:#24292e; }
+        .log-time-btn, .open-browser-btn { padding:4px 10px; }
+        .modal-backdrop { position:fixed; inset:0; background:rgba(15,23,42,0.55); display:flex; align-items:center; justify-content:center; z-index:1000; padding:24px; }
+        .modal-backdrop.hidden { display:none; }
+        .modal-card { width:min(520px, 100%); max-height:min(72vh, 680px); overflow:auto; background:#fff; border-radius:14px; box-shadow:0 20px 60px rgba(15,23,42,0.35); border:1px solid #e5e7eb; padding:14px; }
+        .modal-card-header { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
+        .modal-title { font-size:15px; font-weight:700; margin-bottom:4px; }
+        .modal-subtitle { font-size:12px; color:#64748b; }
+        .modal-grid { display:grid; grid-template-columns:1fr; gap:14px; }
+        .modal-section { border:1px solid #e5e7eb; border-radius:10px; padding:12px; background:#fafafa; }
+        .modal-section-title { font-size:13px; font-weight:700; margin-bottom:10px; }
+        .modal-form-row { display:grid; grid-template-columns:1fr 120px 120px; gap:10px; }
+        .modal-form-row.compact { grid-template-columns:1fr 100px; }
+        .modal-input, .modal-select, .modal-textarea { width:100%; border:1px solid #d1d5db; border-radius:8px; padding:8px 10px; background:#fff; font-size:13px; }
+        .modal-textarea { min-height:72px; resize:vertical; }
+        .modal-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+        .modal-button.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+        .modal-button.danger { border-color:#dc2626; color:#dc2626; }
+        .modal-entry { padding:10px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; margin-bottom:10px; }
+        .modal-entry-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:12px; }
+        .modal-entry-title { font-weight:600; font-size:12px; }
+        .modal-entry-meta { font-size:11px; color:#64748b; margin-top:4px; }
+        .modal-empty { color:#64748b; font-size:12px; padding:8px 0; }
       </style>
     </head>
     <body>
@@ -1140,73 +1083,27 @@ export class RedmineDashboardProvider {
         <h2>Redmine Dashboard</h2>
         <button class="refresh-btn" id="refreshBtn">&#x21bb; Refresh</button>
       </div>
-
-      ${serverUrl
-        ? `<div class="server-info">Connected to: <a href="#" id="openServerLink">${serverUrl}</a></div>`
-        : ""
-      }
-
+      ${serverUrl ? `<div class="server-info">Connected to: <a href="${serverUrl}" id="openServerLink" target="_blank">${serverUrl}</a></div>` : ""}
       ${errorHtml}
-
       ${worktimeReportHtml}
-
+      ${modalHtml}
       <div class="section-title">Issues Assigned to Me (${issuesCount})</div>
-
-      ${issuesHtml ||
-      `<div class="no-issues">No open issues assigned to you.</div>`
-      }
-
+      ${issuesHtml || `<div class="no-issues">No open issues assigned to you.</div>`}
       <script>
         const vscodeApi = acquireVsCodeApi();
-        const refreshBtn = document.getElementById('refreshBtn');
-        const openServerLink = document.getElementById('openServerLink');
-        const worktimeProjectSelect = document.getElementById('worktimeProjectSelect');
-        const reportActionButtons = document.querySelectorAll('[data-report-action]');
-
-        refreshBtn.addEventListener('click', () => {
-          vscodeApi.postMessage({ type: 'refresh' });
-        });
-
-        reportActionButtons.forEach((button) => {
-          button.addEventListener('click', () => {
-            const action = button.getAttribute('data-report-action');
-            if (action) {
-              vscodeApi.postMessage({ type: action });
-            }
-          });
-        });
-
-        if (worktimeProjectSelect) {
-          worktimeProjectSelect.addEventListener('change', () => {
-            const value = worktimeProjectSelect.value;
-            vscodeApi.postMessage({
-              type: 'worktimeProjectChange',
-              projectId: value ? Number(value) : null,
-            });
-          });
-        }
-
-        ${serverUrl
-        ? `if (openServerLink) {
-              openServerLink.addEventListener('click', (e) => {
-                e.preventDefault();
-                vscodeApi.postMessage({
-                  type: 'openExternal',
-                  url: ${JSON.stringify(serverUrl)},
-                });
-              });
-            }`
-        : ""
-      }
-
-        document.querySelectorAll('.issue-card, .worktime-entry-row[data-issue-id]').forEach((card) => {
-          card.addEventListener('click', () => {
-            const issueId = parseInt(card.getAttribute('data-issue-id') || '', 10);
-            if (!Number.isNaN(issueId)) {
-              vscodeApi.postMessage({ type: 'openIssue', issueId });
-            }
-          });
-        });
+        document.getElementById('refreshBtn')?.addEventListener('click', () => vscodeApi.postMessage({ type: 'refresh' }));
+        document.getElementById('openServerLink')?.addEventListener('click', (e) => { e.preventDefault(); vscodeApi.postMessage({ type: 'openExternal', url: ${JSON.stringify(serverUrl)} }); });
+        document.querySelectorAll('[data-report-action]').forEach((button) => button.addEventListener('click', () => vscodeApi.postMessage({ type: button.getAttribute('data-report-action') })));
+        document.querySelectorAll('.worktime-entry-row[data-issue-id]').forEach((row) => row.addEventListener('click', () => { const issueId = parseInt(row.getAttribute('data-issue-id') || '', 10); if (!Number.isNaN(issueId)) vscodeApi.postMessage({ type: 'openIssueForLogTime', issueId }); }));
+        document.querySelectorAll('.worktime-day-cell[data-has-entry="true"]').forEach((cell) => cell.addEventListener('click', (e) => { e.stopPropagation(); const row = cell.closest('tr'); const issueId = row ? parseInt(row.getAttribute('data-issue-id') || '', 10) : NaN; const date = cell.getAttribute('data-date'); if (!Number.isNaN(issueId) && date) vscodeApi.postMessage({ type: 'openIssueForLogTime', issueId, spentOn: date }); }));
+        document.querySelectorAll('.log-time-btn').forEach((btn) => btn.addEventListener('click', (e) => { e.stopPropagation(); const issueId = parseInt(btn.getAttribute('data-issue-id') || '', 10); if (!Number.isNaN(issueId)) vscodeApi.postMessage({ type: 'openIssueForLogTime', issueId }); }));
+        document.querySelectorAll('.open-browser-btn').forEach((btn) => btn.addEventListener('click', (e) => { e.stopPropagation(); const issueId = parseInt(btn.getAttribute('data-issue-id') || '', 10); if (!Number.isNaN(issueId)) vscodeApi.postMessage({ type: 'openIssue', issueId }); }));
+        const modalBackdrop = document.getElementById('logTimeModal');
+        document.getElementById('modalCloseBtn')?.addEventListener('click', () => vscodeApi.postMessage({ type: 'closeLogTimeModal' }));
+        document.getElementById('modalLogTimeBtn')?.addEventListener('click', () => { const issueId = Number(modalBackdrop?.dataset.issueId || '0'); const activityId = 0; const hours = document.getElementById('modalHours').value; const spentOn = document.getElementById('modalSpentOn').value; const comments = document.getElementById('modalComments').value; if (!issueId || !hours) return; vscodeApi.postMessage({ type: 'logTime', issueId, activityId, hours, comments, spentOn }); });
+        document.getElementById('modalStatusBtn')?.addEventListener('click', () => { const issueId = Number(modalBackdrop?.dataset.issueId || '0'); const statusId = Number(document.getElementById('modalStatus').value); if (!issueId || !statusId) return; vscodeApi.postMessage({ type: 'changeStatus', issueId, statusId }); });
+        document.querySelectorAll('[data-update-entry]').forEach((btn) => btn.addEventListener('click', () => { const entryId = Number(btn.getAttribute('data-update-entry')); const hoursInput = document.querySelector('[data-entry-hours="' + entryId + '"]'); const commentsInput = document.querySelector('[data-entry-comments="' + entryId + '"]'); const dateInput = document.querySelector('[data-entry-date="' + entryId + '"]'); vscodeApi.postMessage({ type: 'updateTimeEntry', timeEntryId: entryId, hours: hoursInput?.value || undefined, comments: commentsInput?.value || undefined, spentOn: dateInput?.value || undefined }); }));
+        document.querySelectorAll('[data-delete-entry]').forEach((btn) => btn.addEventListener('click', () => { const entryId = Number(btn.getAttribute('data-delete-entry')); vscodeApi.postMessage({ type: 'deleteTimeEntry', timeEntryId: entryId }); }));
       </script>
     </body>
     </html>`;

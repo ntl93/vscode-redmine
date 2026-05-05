@@ -41,8 +41,41 @@ interface TimeEntryCollectionResponse {
   limit?: number;
 }
 
+interface CurrentUserRecord {
+  id: number;
+  login?: string;
+  firstname?: string;
+  lastname?: string;
+  name?: string;
+}
+
+interface CurrentUserResponse {
+  user: CurrentUserRecord;
+}
+
 const REDMINE_API_KEY_HEADER_NAME = "X-Redmine-API-Key";
 const ISSUE_BATCH_SIZE = 100;
+const ISSUE_STATUS_ORDER = [
+  "new",
+  "in progress",
+  "feedback",
+  "closed",
+];
+
+const sortIssueStatuses = <T extends { name: string }>(statuses: T[]): T[] =>
+  [...statuses].sort((left, right) => {
+    const leftIndex = ISSUE_STATUS_ORDER.indexOf(left.name.trim().toLowerCase());
+    const rightIndex = ISSUE_STATUS_ORDER.indexOf(right.name.trim().toLowerCase());
+
+    const normalizedLeft = leftIndex === -1 ? ISSUE_STATUS_ORDER.length : leftIndex;
+    const normalizedRight = rightIndex === -1 ? ISSUE_STATUS_ORDER.length : rightIndex;
+
+    if (normalizedLeft !== normalizedRight) {
+      return normalizedLeft - normalizedRight;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
 
 export interface RedmineServerConnectionOptions {
   /**
@@ -78,6 +111,7 @@ export class RedmineServer {
   options!: RedmineServerOptions;
 
   private timeEntryActivities: TimeEntryActivity[] | null = null;
+  private currentUser: CurrentUserRecord | null = null;
 
   get request() {
     return this.options.url.protocol === "https:"
@@ -260,21 +294,74 @@ export class RedmineServer {
     issueId: number,
     activityId: number,
     hours: string,
-    message: string
+    message: string,
+    spentOn?: string
   ): Promise<unknown> {
+    const body: any = {
+      time_entry: <TimeEntry>{
+        issue_id: issueId,
+        activity_id: activityId,
+        hours,
+        comments: message,
+      },
+    };
+    if (spentOn) {
+      (body.time_entry as any).spent_on = spentOn;
+    }
     return this.doRequest<{ time_entry: TimeEntry }>(
       `/time_entries.json`,
       "POST",
-      Buffer.from(
-        JSON.stringify({
-          time_entry: <TimeEntry>{
-            issue_id: issueId,
-            activity_id: activityId,
-            hours,
-            comments: message,
-          },
-        })
-      )
+      Buffer.from(JSON.stringify(body))
+    );
+  }
+
+  updateTimeEntry(
+    timeEntryId: number,
+    activityId?: number,
+    hours?: string,
+    message?: string,
+    spentOn?: string
+  ): Promise<unknown> {
+    const body: any = { time_entry: {} as TimeEntry };
+    if (activityId !== undefined) {
+      (body.time_entry as any).activity_id = activityId;
+    }
+    if (hours !== undefined) {
+      body.time_entry.hours = hours;
+    }
+    if (message !== undefined) {
+      body.time_entry.comments = message;
+    }
+    if (spentOn !== undefined) {
+      (body.time_entry as any).spent_on = spentOn;
+    }
+    return this.doRequest<{ time_entry: TimeEntry }>(
+      `/time_entries/${timeEntryId}.json`,
+      "PUT",
+      Buffer.from(JSON.stringify(body))
+    );
+  }
+
+  deleteTimeEntry(timeEntryId: number): Promise<unknown> {
+    return this.doRequest(`/time_entries/${timeEntryId}.json`, "DELETE");
+  }
+
+  getTimeEntriesByIssue(issueId: number): Promise<TimeEntryRecord[]> {
+    return this.doRequest<TimeEntryCollectionResponse>(
+      `/time_entries.json?issue_id=${issueId}&limit=100&include=user`, "GET"
+    ).then((response) => response?.time_entries ?? []);
+  }
+
+  getCurrentUser(): Promise<CurrentUserRecord> {
+    if (this.currentUser) {
+      return Promise.resolve(this.currentUser);
+    }
+
+    return this.doRequest<CurrentUserResponse>(`/users/current.json`, "GET").then(
+      (response) => {
+        this.currentUser = response.user;
+        return response.user;
+      }
     );
   }
 
@@ -344,11 +431,13 @@ export class RedmineServer {
         "GET"
       ).then((obj) => {
         if (obj) {
-          // Shouldn't change much; cache it.
-          this.issueStatuses = obj;
+          // Normalize to a predictable edit/update order.
+          this.issueStatuses = {
+            issue_statuses: sortIssueStatuses(obj.issue_statuses),
+          };
         }
 
-        return obj;
+        return this.issueStatuses ?? obj;
       });
     } else {
       return Promise.resolve(this.issueStatuses);
