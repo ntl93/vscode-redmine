@@ -252,17 +252,13 @@ export class RedmineDashboardProvider {
   ): Promise<Map<number, Issue>> {
     const issueDetails = new Map<number, Issue>();
 
-    const lookups = await Promise.allSettled(
-      issueIds.map(async (issueId) => {
-        const response = await server.getIssueById(issueId);
-        return response.issue;
-      })
-    );
+    if (issueIds.length === 0) {
+      return issueDetails;
+    }
 
-    for (const lookup of lookups) {
-      if (lookup.status === "fulfilled") {
-        issueDetails.set(lookup.value.id, lookup.value);
-      }
+    const issues = await server.getIssuesByIds(issueIds);
+    for (const issue of issues) {
+      issueDetails.set(issue.id, issue);
     }
 
     return issueDetails;

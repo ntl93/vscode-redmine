@@ -286,6 +286,37 @@ export class RedmineServer {
   }
 
   /**
+   * Returns promise that resolves to a list of issues matching the given IDs.
+   * Requests are batched to avoid overly long URLs.
+   * @param issueIds Array of issue IDs to fetch
+   */
+  async getIssuesByIds(issueIds: number[]): Promise<Issue[]> {
+    if (issueIds.length === 0) {
+      return [];
+    }
+
+    const BATCH_SIZE = 100;
+    const allIssues: Issue[] = [];
+
+    for (let i = 0; i < issueIds.length; i += BATCH_SIZE) {
+      const batch = issueIds.slice(i, i + BATCH_SIZE);
+      const query = new URLSearchParams({
+        issue_id: batch.join(","),
+        limit: String(BATCH_SIZE),
+      });
+      const response = await this.doRequest<{ issues: Issue[] }>(
+        `/issues.json?${query.toString()}`,
+        "GET"
+      );
+      if (response?.issues) {
+        allIssues.push(...response.issues);
+      }
+    }
+
+    return allIssues;
+  }
+
+  /**
    * Returns promise, that resolves, when issue status is set
    */
   setIssueStatus(issue: Issue, statusId: number): Promise<unknown> {
